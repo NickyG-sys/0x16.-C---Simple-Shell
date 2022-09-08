@@ -1,155 +1,152 @@
 #include "shell.h"
 
-/**
- * exitt - exits the shell with or without a return of status n
- * @arv: array of words of the entered line
- */
-void exitt(char **arv)
-{
-	int i, n;
-
-	if (arv[1])
-	{
-		n = _atoi(arv[1]);
-		if (n <= -1)
-			n = 2;
-		freearv(arv);
-		exit(n);
-	}
-	for (i = 0; arv[i]; i++)
-		free(arv[i]);
-	free(arv);
-	exit(0);
-}
+int shellby_alias(char **args, char __attribute__((__unused__)) **front);
+void set_alias(char *var_name, char *value);
+void print_alias(alias_t *alias);
 
 /**
- * _atoi - converts a string into an integer
- *@s: pointer to a string
- *Return: the integer
+ * shellby_alias - Builtin command that either prints all aliases, specific
+ * aliases, or sets an alias.
+ * @args: An array of arguments.
+ * @front: A double pointer to the beginning of args.
+ *
+ * Return: If an error occurs - -1.
+ *         Otherwise - 0.
  */
-int _atoi(char *s)
+int shellby_alias(char **args, char __attribute__((__unused__)) **front)
 {
-	int i, integer, sign = 1;
+	alias_t *temp = aliases;
+	int i, ret = 0;
+	char *value;
 
-	i = 0;
-	integer = 0;
-	while (!((s[i] >= '0') && (s[i] <= '9')) && (s[i] != '\0'))
+	if (!args[0])
 	{
-		if (s[i] == '-')
+		while (temp)
 		{
-			sign = sign * (-1);
+			print_alias(temp);
+			temp = temp->next;
 		}
-		i++;
+		return (ret);
 	}
-	while ((s[i] >= '0') && (s[i] <= '9'))
+	for (i = 0; args[i]; i++)
 	{
-		integer = (integer * 10) + (sign * (s[i] - '0'));
-		i++;
+		temp = aliases;
+		value = _strchr(args[i], '=');
+		if (!value)
+		{
+			while (temp)
+			{
+				if (_strcmp(args[i], temp->name) == 0)
+				{
+					print_alias(temp);
+					break;
+				}
+				temp = temp->next;
+			}
+			if (!temp)
+				ret = create_error(args + i, 1);
+		}
+		else
+			set_alias(args[i], value);
 	}
-	return (integer);
+	return (ret);
 }
 
 /**
- * env - prints the current environment
- * @arv: array of arguments
+ * set_alias - Will either set an existing alias 'name' with a new value,
+ * 'value' or creates a new alias with 'name' and 'value'.
+ * @var_name: Name of the alias.
+ * @value: Value of the alias. First character is a '='.
  */
-void env(char **arv __attribute__ ((unused)))
+void set_alias(char *var_name, char *value)
 {
+	alias_t *temp = aliases;
+	int len, j, k;
+	char *new_value;
 
+	*value = '\0';
+	value++;
+	len = _strlen(value) - _strspn(value, "'\"");
+	new_value = malloc(sizeof(char) * (len + 1));
+	if (!new_value)
+		return;
+	for (j = 0, k = 0; value[j]; j++)
+	{
+		if (value[j] != '\'' && value[j] != '"')
+			new_value[k++] = value[j];
+	}
+	new_value[k] = '\0';
+	while (temp)
+	{
+		if (_strcmp(var_name, temp->name) == 0)
+		{
+			free(temp->value);
+			temp->value = new_value;
+			break;
+		}
+		temp = temp->next;
+	}
+	if (!temp)
+		add_alias_end(&aliases, var_name, new_value);
+}
+
+/**
+ * print_alias - Prints the alias in the format name='value'.
+ * @alias: Pointer to an alias.
+ */
+void print_alias(alias_t *alias)
+{
+	char *alias_string;
+	int len = _strlen(alias->name) + _strlen(alias->value) + 4;
+
+	alias_string = malloc(sizeof(char) * (len + 1));
+	if (!alias_string)
+		return;
+	_strcpy(alias_string, alias->name);
+	_strcat(alias_string, "='");
+	_strcat(alias_string, alias->value);
+	_strcat(alias_string, "'\n");
+
+	write(STDOUT_FILENO, alias_string, len);
+	free(alias_string);
+}
+/**
+ * replace_aliases - Goes through the arguments and replace any matching alias
+ * with their value.
+ * @args: 2D pointer to the arguments.
+ *
+ * Return: 2D pointer to the arguments.
+ */
+char **replace_aliases(char **args)
+{
+	alias_t *temp;
 	int i;
+	char *new_value;
 
-	for (i = 0; environ[i]; i++)
+	if (_strcmp(args[0], "alias") == 0)
+		return (args);
+	for (i = 0; args[i]; i++)
 	{
-		_puts(environ[i]);
-		_puts("\n");
-	}
-
-}
-
-/**
- * _setenv - Initialize a new environment variable, or modify an existing one
- * @arv: array of entered words
- */
-void _setenv(char **arv)
-{
-	int i, j, k;
-
-	if (!arv[1] || !arv[2])
-	{
-		perror(_getenv("_"));
-		return;
-	}
-
-	for (i = 0; environ[i]; i++)
-	{
-		j = 0;
-		if (arv[1][j] == environ[i][j])
+		temp = aliases;
+		while (temp)
 		{
-			while (arv[1][j])
+			if (_strcmp(args[i], temp->name) == 0)
 			{
-				if (arv[1][j] != environ[i][j])
-					break;
-
-				j++;
-			}
-			if (arv[1][j] == '\0')
-			{
-				k = 0;
-				while (arv[2][k])
+				new_value = malloc(sizeof(char) * (_strlen(temp->value) + 1));
+				if (!new_value)
 				{
-					environ[i][j + 1 + k] = arv[2][k];
-					k++;
+					free_args(args, args);
+					return (NULL);
 				}
-				environ[i][j + 1 + k] = '\0';
-				return;
+				_strcpy(new_value, temp->value);
+				free(args[i]);
+				args[i] = new_value;
+				i--;
+				break;
 			}
+			temp = temp->next;
 		}
 	}
-	if (!environ[i])
-	{
 
-		environ[i] = concat_all(arv[1], "=", arv[2]);
-		environ[i + 1] = '\0';
-
-	}
-}
-
-/**
- * _unsetenv - Remove an environment variable
- * @arv: array of entered words
- */
-void _unsetenv(char **arv)
-{
-	int i, j;
-
-	if (!arv[1])
-	{
-		perror(_getenv("_"));
-		return;
-	}
-	for (i = 0; environ[i]; i++)
-	{
-		j = 0;
-		if (arv[1][j] == environ[i][j])
-		{
-			while (arv[1][j])
-			{
-				if (arv[1][j] != environ[i][j])
-					break;
-
-				j++;
-			}
-			if (arv[1][j] == '\0')
-			{
-				free(environ[i]);
-				environ[i] = environ[i + 1];
-				while (environ[i])
-				{
-					environ[i] = environ[i + 1];
-					i++;
-				}
-				return;
-			}
-		}
-	}
+	return (args);
 }
